@@ -18,6 +18,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../acp-drgnx-ask"
+    },
+    {
       "path": "../../core/session"
     },
     {
@@ -40,6 +43,9 @@
     },
     {
       "path": "../../interaction/user-approval"
+    },
+    {
+      "path": "../../core/tools"
     }
   ]
 }

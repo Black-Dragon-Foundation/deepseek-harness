@@ -49,7 +49,11 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 // Side-effect type import: declaration-merges the approval waterfall answered below.
 import type {} from '@deepseek-ai/dsh-user-approval'
+import { toolKind } from '@deepseek-ai/dsh-acp-drgnx-ask'
+// Side-effect type import: declaration-merges the `tools/pre-execute` waterfall hooked below.
+import type {} from '@deepseek-ai/dsh-tools'
 import { supportsAcpImagePrompts } from './content.ts'
+import { DrgnxPanel } from './drgnx-panel.ts'
 import { AcpMcpConfigError } from './mcp.ts'
 import { AcpModelConfigError } from './model-control.ts'
 import { AcpSession } from './session.ts'
@@ -131,6 +135,24 @@ export function apply(ctx: Context, config: AcpConfig): void {
     /* v8 ignore stop */
   }
 
+  const panel = new DrgnxPanel({
+    ctx,
+    conn: () => conn,
+    drain: agent => ownedRecord(agent)?.drainUpdates(),
+  })
+
+  // The panel asks the client before an owned agent's tool runs (only when the client offered `_drgnx/panel`).
+  // The approval request names a call but carries no input, so the input is kept for the call's lifetime.
+  const pendingInputs = new Map<string, unknown>()
+  ctx.on('tools/pre-execute', (exec, next) => {
+    pendingInputs.set(exec.callId, exec.arguments)
+    return panel.beforeTool(exec, next)
+  })
+  ctx.on('tools/result', (exec) => {
+    pendingInputs.delete(exec.callId)
+    return undefined
+  })
+
   ctx.on('session/event', (session, event) => {
     const record = sessions.get(session.header.id)
     if (record?.ownsSession(session) === true) record.onSessionEvent(session, event)
@@ -162,7 +184,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
     return record.drainUpdates().then(() => {
       const params: RequestPermissionRequest = {
         sessionId: record.agent.session.id,
-        toolCall: { toolCallId: callId },
+        toolCall: {
+          toolCallId: callId,
+          title: request.toolName,
+          kind: toolKind(request.toolName),
+          ...pendingInputs.has(callId) ? { rawInput: pendingInputs.get(callId) } : {},
+        },
         options: [
           { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
           { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
@@ -176,10 +203,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
   })
 
   const implementation = {
-    async initialize(_params: InitializeRequest): Promise<InitializeResponse> {
+    async initialize(params: InitializeRequest): Promise<InitializeResponse> {
+      panel.initialize(params)
       // Single-version agent: the spec's "same version if supported, else
       // the latest supported" both resolve to this server's one version.
       imagePromptEnabled = await supportsAcpImagePrompts(ctx, config.provider, config.model)
+      const panelMeta = panel.capability()
       return {
         protocolVersion: PROTOCOL_VERSION,
         agentInfo: { name: 'deepseek-harness-acp', version: '0.0.1' },
@@ -187,6 +216,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           mcpCapabilities: { http: true },
           promptCapabilities: { image: imagePromptEnabled, audio: false, embeddedContext: false },
           sessionCapabilities: { close: {}, list: {}, resume: {} },
+          ...panelMeta === undefined ? {} : { _meta: panelMeta },
         },
         authMethods: [],
       }
@@ -213,6 +243,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           agentOptions: agentOptions(config),
           signal,
           notify,
+          afterAssistant: session => panel.pushContext(session),
         })
       } catch (error: unknown) {
         if (error instanceof AcpMcpConfigError) throw invalidParams(error.message)
@@ -263,6 +294,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
             agentOptions: agentOptions(config),
             signal,
             notify,
+            afterAssistant: session => panel.pushContext(session),
           })
         } catch (error: unknown) {
           if (error instanceof AcpMcpConfigError) throw invalidParams(error.message)

@@ -50,7 +50,7 @@ const contextBreakdownStateSchema = z.object({
   claim: claimSchema.optional(),
   breakdown: breakdownSchema,
 }).strict()
-type ContextBreakdownState = z.infer<typeof contextBreakdownStateSchema>
+export type ContextBreakdownState = z.infer<typeof contextBreakdownStateSchema>
 type SystemNode = ContextBreakdownState['systems'][number]
 type BreakdownClaim = z.infer<typeof claimSchema>
 

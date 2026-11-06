@@ -204,6 +204,11 @@ export interface BridgeHarness {
   permissionRequests: RequestPermissionRequest[]
   persistenceRoot: string
   onPermission: (request: RequestPermissionRequest) => RequestPermissionResponse
+  /** `_drgnx/before_tool` requests the client received, and its answer (a throw fails the request). */
+  beforeToolRequests: unknown[]
+  onBeforeTool: (params: unknown) => unknown
+  /** `_drgnx/context` notifications the client received. */
+  contextNotifications: unknown[]
   onSessionUpdateError: (() => void) | undefined
   registerCatalogProvider: (provider: string) => () => void
   replacePrimaryProviders: (providers: string[]) => void
@@ -258,6 +263,9 @@ export async function makeBridgeHarness(options: {
     permissionRequests,
     persistenceRoot,
     onPermission: () => ({ outcome: { outcome: 'cancelled' } }),
+    beforeToolRequests: [],
+    onBeforeTool: () => ({ outcome: 'allow' }),
+    contextNotifications: [],
     onSessionUpdateError: undefined,
     registerCatalogProvider: provider => ctx.llm.registerAdapter([provider], new MockAdapter([], false, provider)),
     replacePrimaryProviders: (providers) => { primaryAdapter.replace(providers) },
@@ -282,6 +290,14 @@ export async function makeBridgeHarness(options: {
     .onRequest(methods.client.session.requestPermission, ({ params }) => {
       permissionRequests.push(params)
       return Promise.resolve(harness.onPermission(params))
+    })
+    .onRequest('_drgnx/before_tool', (params: unknown) => params, ({ params }) => {
+      harness.beforeToolRequests.push(params)
+      return Promise.resolve(harness.onBeforeTool(params) as Record<string, unknown>)
+    })
+    .onNotification('_drgnx/context', (params: unknown) => params, ({ params }) => {
+      harness.contextNotifications.push(params)
+      return Promise.resolve()
     })
 
   const config = { stream: agentStream, ...options.config } as AcpConfig

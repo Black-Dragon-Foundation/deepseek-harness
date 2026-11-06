@@ -35,6 +35,8 @@ interface AcpSessionBuildOptions {
   agentOptions: AgentOptions
   signal: AbortSignal
   notify: (notification: SessionNotification) => Promise<void>
+  /** Called after each assistant message's standard updates were delivered. */
+  afterAssistant?: (session: Session) => Promise<void>
 }
 
 /** Fresh ACP session construction inputs. */
@@ -101,6 +103,7 @@ export class AcpSession {
     private readonly ctx: Context,
     handle: AgentHandle,
     private readonly notify: (notification: SessionNotification) => Promise<void>,
+    private readonly afterAssistant?: (session: Session) => Promise<void>,
   ) {
     this.agent = handle.agent
     this.modelControl = new AcpModelControl(ctx.llm, handle.agent.model)
@@ -123,7 +126,7 @@ export class AcpSession {
       signal: options.signal,
       setup: agentCtx => composeAgent(agentCtx, options),
     })
-    return new AcpSession(ctx, handle, options.notify)
+    return new AcpSession(ctx, handle, options.notify, options.afterAssistant)
   }
 
   /**
@@ -141,7 +144,7 @@ export class AcpSession {
       signal: options.signal,
       setup: agentCtx => composeAgent(agentCtx, options),
     })
-    return new AcpSession(ctx, handle, options.notify)
+    return new AcpSession(ctx, handle, options.notify, options.afterAssistant)
   }
 
   /**
@@ -330,6 +333,7 @@ export class AcpSession {
           for (const update of await assistantUpdates(this.ctx, session, event)) {
             await this.notify({ sessionId: this.agent.session.id, update })
           }
+          await this.afterAssistant?.(session)
         })
         this.outputTail = delivery.catch((error: unknown) => {
           const failure = error as Error

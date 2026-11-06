@@ -25,12 +25,14 @@ import {
 } from '@deepseek-ai/dsh-session'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import type {
+  ContextBreakdownProjection,
   ContextPressureProjection,
   TokenMeasurement,
   TokenMeasurementBaseline,
   TokenMeterConfig,
 } from './types.ts'
 import { contextBreakdownProjectionDefinition } from './breakdown-projection.ts'
+import type { ContextBreakdownState } from './breakdown-projection.ts'
 import { contextPressureProjectionDefinition, tokenUsageProjectionDefinition } from './usage-projection.ts'
 import type { ContextPressureState } from './usage-projection.ts'
 import { estimateMessage, estimateToolsTokens } from './estimate.ts'
@@ -94,6 +96,7 @@ export class TokenMeter extends Service {
   private readonly states = new WeakMap<Session, ReplayState>()
   private measurementProjectionHandle: ProjectionHandle<MeasurementState> | undefined
   private contextPressureProjectionHandle!: ProjectionHandle<ContextPressureState>
+  private contextBreakdownProjectionHandle!: ProjectionHandle<ContextBreakdownState>
 
   constructor(ctx: Context, config: TokenMeterConfig = {}) {
     super(ctx, 'tokenMeter')
@@ -105,7 +108,7 @@ export class TokenMeter extends Service {
     this.measurementProjectionHandle = await ctx.sessionProjections.register(measurementProjectionDefinition)
     await ctx.sessionProjections.register(tokenUsageProjectionDefinition)
     this.contextPressureProjectionHandle = await ctx.sessionProjections.register(contextPressureProjectionDefinition)
-    await ctx.sessionProjections.register(contextBreakdownProjectionDefinition)
+    this.contextBreakdownProjectionHandle = await ctx.sessionProjections.register(contextBreakdownProjectionDefinition)
 
     // Readers catch up independently, while eager observation bounds ordinary
     // read latency without creating state for sessions no consumer has read.
@@ -125,6 +128,15 @@ export class TokenMeter extends Service {
       ...pressureTokens === undefined ? {} : { pressureTokens },
       ...contextWindow === undefined ? {} : { contextWindow },
     }
+  }
+
+  /**
+   * Read the heuristic system, tools, and message composition of the next request.
+   * @param session - Session whose committed surface and request headers are read.
+   * @returns the composition; every field is 0 before its source events are recorded.
+   */
+  contextBreakdown(session: Session): ContextBreakdownProjection {
+    return this.contextBreakdownProjectionHandle.stateOf(session).breakdown
   }
 
   /**

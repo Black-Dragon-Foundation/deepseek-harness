@@ -4,6 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionUpdate, ToolCallContent } from '@agentclientprotocol/sdk'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-token-meter'
+import { toolKind } from '@deepseek-ai/dsh-acp-drgnx-ask'
 import { assistantBlockToAcp } from './content.ts'
 
 /**
@@ -54,7 +55,7 @@ export function toolCallUpdate(event: SessionEvent<'tool/call'>): SessionUpdate 
     sessionUpdate: 'tool_call',
     toolCallId: event.data.callId,
     title: event.data.name,
-    kind: 'other',
+    kind: toolKind(event.data.name),
     status: 'in_progress',
     rawInput: parseToolArguments(event.data.arguments),
   }
